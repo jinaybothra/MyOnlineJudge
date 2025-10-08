@@ -2,12 +2,15 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const Problem = require('./models/Problem');
 const User = require('./models/User');
 
 const app = express();
-app.use(bodyParser.json());
+app.use(express.urlencoded({extended: true}))
+app.use(express.json())
 
 // CORS for local dev (adjust in production)
 const cors = require('cors');
@@ -70,6 +73,8 @@ app.get('/api/user/:id', async (req, res) => {
         languages: ['JavaScript', 'Python'],
         achievements: [],
         recentActivity: [],
+        email: 'abc@abc.com',
+        password: 'hjdkdfhskfhskfh'
       });
       return res.json(newU);
     }
@@ -79,6 +84,40 @@ app.get('/api/user/:id', async (req, res) => {
     res.status(500).json({ error: 'server error' });
   }
 });
+
+// Register endpoint
+app.post('/auth/register', async (req, res) => {
+  const { email, password, username } = req.body;
+  if (!email || !password) return res.status(400).json({ message: 'Email and password required' });
+
+  const existingUser = await User.findOne({ email });
+  if (existingUser) return res.status(400).json({ message: 'User already exists' });
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+  const user = new User({ email, password: hashedPassword, username });
+  await user.save();
+
+  const token = jwt.sign({ id: user._id }, process.env.MONGO_URI, { expiresIn: '1h' });
+  res.json({ token, user: { id: user._id, email, username } });
+});
+
+// Login endpoint
+app.post('/auth/login', async (req, res) => {
+  // console.log(req);
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ message: 'Email and password required' });
+
+  const user = await User.findOne({ email });
+  if (!user) return res.status(400).json({ message: 'Invalid credentials' });
+
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
+
+  const token = jwt.sign({ id: user._id }, process.env.MONGO_URI, { expiresIn: '1h' });
+  res.json({ token, user: { id: user._id, email: user.email, username: user.username } });
+  console.log(res);
+});
+
 
 /**
  * POST /api/run

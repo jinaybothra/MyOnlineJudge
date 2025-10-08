@@ -2,33 +2,29 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 
 export default function CodeArena() {
-  const [view, setView] = useState("problems"); // problems | profile
+  const [view, setView] = useState("problem"); // problem | profile
 
-  const [problems] = useState([
-    {
-      id: "two-sum",
-      title: "Two Sum",
-      difficulty: "Easy",
-      tags: ["array", "hashmap"],
-      statement: "Given an array of integers, return indices of the two numbers such that they add up to a specific target.",
-      constraints: "2 <= nums.length <= 10^5",
-      examples: [{ in: "nums = [2,7,11,15], target = 9", out: "[0,1]" }],
-      defaultCode: `function twoSum(nums, target) {\n  // write your solution here\n  return [];\n}`,
-    },
-    {
-      id: "reverse-string",
-      title: "Reverse String",
-      difficulty: "Easy",
-      tags: ["string"],
-      statement: "Write a function that reverses a string in-place.",
-      constraints: "1 <= s.length <= 10^5",
-      examples: [{ in: "s = [\"h\", \"e\", \"l\", \"l\", \"o\"]", out: "[\"o\", \"l\", \"l\", \"e\", \"h\"]" }],
-      defaultCode: `function reverseString(s) {\n  // write your solution here\n}`,
-    },
-  ]);
+  const [problem, setProblem] = useState([]);
 
-  const [selectedProblemId, setSelectedProblemId] = useState(problems[0].id);
-  const selectedProblem = problems.find((p) => p.id === selectedProblemId);
+  useEffect(() => {
+    const fetchProblems = async () => {
+      try {
+        const response = await fetch('http://localhost:8080/api/problems');
+        if (!response.ok) throw new Error('Failed to fetch problems');
+        const data = await response.json();
+        setProblem(data.problems);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProblems();
+  }, []);
+
+  const [selectedProblemId, setSelectedProblemId] = useState(problem[0].id);
+  const selectedProblem = problem.find((p) => p.id === selectedProblemId);
 
   const [code, setCode] = useState(selectedProblem.defaultCode);
   const [language, setLanguage] = useState("javascript");
@@ -56,7 +52,7 @@ export default function CodeArena() {
     setIsRunning(true);
     setOutput("");
     try {
-      const res = await fetch("http://localhost:5000/run", {
+      const res = await fetch("http://localhost:8080/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, language, stdin }),
@@ -73,7 +69,7 @@ export default function CodeArena() {
     setIsSubmitting(true);
     setOutput("");
     try {
-      const res = await fetch("http://localhost:5000/submit", {
+      const res = await fetch("http://localhost:8080/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ code, language, problemId: selectedProblem.id }),
@@ -99,7 +95,7 @@ export default function CodeArena() {
     return () => window.removeEventListener("keydown", handler);
   }, [code, language, stdin, selectedProblem]);
 
-  const filtered = problems.filter((p) =>
+  const filtered = problem.filter((p) =>
     p.title.toLowerCase().includes(search.toLowerCase()) ||
     p.tags.join(" ").toLowerCase().includes(search.toLowerCase())
   );
@@ -118,7 +114,7 @@ export default function CodeArena() {
           </div>
 
           <div className="flex items-center gap-3">
-            {view === "problems" && (
+            {view === "problem" && (
               <input
                 type="text"
                 placeholder="Search problems, tags..."
@@ -127,15 +123,15 @@ export default function CodeArena() {
                 className="px-3 py-2 border rounded-md bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
               />
             )}
-            <button onClick={() => setView(view === "problems" ? "profile" : "problems")} className="px-3 py-2 bg-indigo-600 text-white rounded-md text-sm">
-              {view === "problems" ? "My Profile" : "Back to Problems"}
+            <button onClick={() => setView(view === "problem" ? "profile" : "problem")} className="px-3 py-2 bg-indigo-600 text-white rounded-md text-sm">
+              {view === "problem" ? "My Profile" : "Back to Problems"}
             </button>
           </div>
         </div>
       </header>
 
       {/* MAIN */}
-      {view === "problems" ? (
+      {view === "problem" ? (
         <main className="max-w-7xl mx-auto px-4 py-6 grid grid-cols-12 gap-4">
           {/* LEFT: Problem List */}
           <aside className="col-span-3 bg-white border rounded-lg p-3 h-[70vh] overflow-auto">
