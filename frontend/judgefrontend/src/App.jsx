@@ -1,12 +1,16 @@
-import './App.css'
-import CodeArena from './assets/CodeArena'
+import React from "react";
+import LoginPage from "./LoginPage";
 
 function App() {
+  const handleLogin = (user) => {
+    console.log("Logged in user:", user);
+  };
+
   return (
     <>
-      <CodeArena/>
+      <LoginPage onLogin={handleLogin} />
     </>
-  )
+  );
 }
 
-export default App
+export default App;
