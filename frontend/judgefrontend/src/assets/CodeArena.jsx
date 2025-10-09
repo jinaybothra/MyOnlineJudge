@@ -13,6 +13,7 @@ export default function CodeArena() {
         if (!response.ok) throw new Error('Failed to fetch problems');
         const data = await response.json();
         setProblem(data.problems);
+        console.log(problem);
       } catch (err) {
         setError(err.message);
       } finally {
