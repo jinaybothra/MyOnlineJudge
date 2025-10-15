@@ -95,8 +95,30 @@ app.post('/auth/register', async (req, res) => {
   const user = new User({ email, password: hashedPassword, username });
   await user.save();
 
-  const token = jwt.sign({ id: user._id }, process.env.MONGO_URI, { expiresIn: '1h' });
-  res.json({ token, user: { id: user._id, email, username } });
+  const token = jwt.sign(
+    { id: user._id }, 
+    process.env.MONGO_URI, 
+    { expiresIn: '1h' }
+  );
+
+  const cookieOption = {
+    expires: new Date(Date.now() + 24*60*60*1000),
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict'
+}
+  const userResponse = {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      createdAt: user.createdAt
+  }
+  res.status(201).json({
+      success: true,
+      message: "Registration is successfull",
+      user: userResponse,
+      token: token
+  })
 });
 
 // Login endpoint
@@ -117,11 +139,7 @@ app.post('/auth/login', async (req, res) => {
 });
 
 
-/**
- * POST /api/run
- * Run code (demo). THIS IS A MOCK runner for safety.
- * In production, implement this by executing code inside a secure, isolated sandbox (docker container, gVisor, Firecracker VMs).
- */
+//post api => run
 app.post('/api/run', async (req, res) => {
   try {
     const { code, language, stdin } = req.body;
