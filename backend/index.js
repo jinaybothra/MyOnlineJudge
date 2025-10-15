@@ -4,17 +4,15 @@ const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const cors = require('cors');
 
 const Problem = require('./models/Problem');
 const User = require('./models/User');
 
 const app = express();
+app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.urlencoded({extended: true}))
 app.use(express.json())
-
-// CORS for local dev (adjust in production)
-const cors = require('cors');
-app.use(cors({ origin: true }));
 
 const MONGO = process.env.MONGO_URI || 'mongodb://localhost:27017/codearena';
 const PORT = process.env.PORT || 5000;
@@ -30,7 +28,7 @@ mongoose.connect(MONGO, { useNewUrlParser: true, useUnifiedTopology: true })
 app.get('/api/problems', async (req, res) => {
   try {
     const problems = await Problem.find().select('-testcases -__v'); // hide testcases for normal list
-    res.json({ problems });
+    res.json( problems );
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'server error' });

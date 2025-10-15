@@ -2,6 +2,7 @@ import React from "react";
 import LoginPage from "./assets/LoginPage";
 import CodeArena from "./assets/CodeArena";
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
+import RegisterPage from "./assets/RegisterPage";
 
 function App() {
   const handleLogin = (user) => {
@@ -16,7 +17,12 @@ function App() {
     {
       path: "/codearena",
       element: <CodeArena/>
+    },
+    {
+      path: "/register",
+      element: <RegisterPage/>
     }
+
   ])
   return (
     <>
