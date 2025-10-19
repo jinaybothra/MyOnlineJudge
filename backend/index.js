@@ -5,6 +5,10 @@ const bodyParser = require('body-parser');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
+const os = require('os');
+const fs = require('fs/promises');
+const path = require('path');
+const { exec } = require('child_process');
 
 const Problem = require('./models/Problem');
 const User = require('./models/User');
@@ -138,32 +142,53 @@ app.post('/auth/login', async (req, res) => {
   console.log(res);
 });
 
+app.use(bodyParser.json({ limit: '1mb' }));
 
-//post api => run
-app.post('/api/run', async (req, res) => {
-  try {
-    const { code, language, stdin } = req.body;
+app.post('/run', async (req, res) => {
+  const { language, code, stdin = '' } = req.body;
+  if (!language || !code) return res.status(400).json({ error: 'Missing language or code' });
 
-    // ---------- MOCKED EXECUTION (safe demo) ----------
-    // Return a mocked result (useful for UI dev). Replace this with a sandboxed runner.
-    return res.json({
-      output: `<<MOCK RUN>>\nLanguage: ${language}\nStdIn:\n${stdin || '<empty>'}\n\nProgram Output:\n[This is mocked output — implement a secure runner to execute real code]`
-    });
-    // --------------------------------------------------
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'arena-'));
+  let srcFile, cmd;
 
-    // ***** Example insecure local execution (DO NOT USE IN PROD) *****
-    // If you want a quick local test (only run on your machine with trusted code), you could spawn a child_process.
-    // WARNING: This is UNSAFE for untrusted code. DO NOT expose to public.
-    //
-    // const { exec } = require('child_process');
-    // // write code to temp file depending on language, then run node/python/g++ etc.
-    // exec('node /tmp/code.js', { timeout: 2000 }, (err, stdout, stderr) => {
-    //   if (err) return res.json({ output: stderr || err.message });
-    //   res.json({ output: stdout });
-    // });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'server error' });
+  switch (language.toLowerCase()) {
+    case 'javascript':
+    case 'js':
+      srcFile = path.join(tmpDir, 'main.js');
+      fs.writeFileSync(srcFile, code);
+      cmd = `node ${srcFile}`;
+      break;
+    case 'python':
+    case 'py':
+      srcFile = path.join(tmpDir, 'main.py');
+      fs.writeFileSync(srcFile, code);
+      cmd = `python3 ${srcFile}`;
+      break;
+    case 'cpp':
+    case 'c++':
+      srcFile = path.join(tmpDir, 'main.cpp');
+      fs.writeFileSync(srcFile, code);
+      cmd = `g++ ${srcFile} -o ${tmpDir}/a.out && ${tmpDir}/a.out`;
+      break;
+    case 'java':
+      srcFile = path.join(tmpDir, 'Main.java');
+      fs.writeFileSync(srcFile, code);
+      cmd = `javac ${srcFile} && java -cp ${tmpDir} Main`;
+      break;
+    default:
+      return res.status(400).json({ error: 'Unsupported language' });
+  }
+
+  const process = exec(cmd, { timeout: 5000 }, (error, stdout, stderr) => {
+    if (error) {
+      return res.json({ success: false, out: stdout, err: stderr || error.message });
+    }
+    res.json({ success: true, out: stdout, err: stderr });
+  });
+
+  if (stdin) {
+    process.stdin.write(stdin);
+    process.stdin.end();
   }
 });
 
