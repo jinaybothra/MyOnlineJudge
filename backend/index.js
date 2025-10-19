@@ -5,7 +5,6 @@ const bodyParser = require('body-parser');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
-const os = require('os');
 const fs = require('fs/promises');
 const path = require('path');
 const { exec } = require('child_process');
@@ -18,8 +17,8 @@ app.use(cors({ origin: 'http://localhost:5173' }));
 app.use(express.urlencoded({extended: true}))
 app.use(express.json())
 
-const MONGO = process.env.MONGO_URI || 'mongodb://localhost:27017/codearena';
-const PORT = process.env.PORT || 5000;
+const MONGO = process.env.MONGO_URI;
+const PORT = process.env.PORT
 
 mongoose.connect(MONGO, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('Mongo connected'))
@@ -144,98 +143,153 @@ app.post('/auth/login', async (req, res) => {
 
 app.use(bodyParser.json({ limit: '1mb' }));
 
-app.post('/run', async (req, res) => {
-  const { language, code, stdin = '' } = req.body;
-  if (!language || !code) return res.status(400).json({ error: 'Missing language or code' });
-
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'arena-'));
-  let srcFile, cmd;
+async function runCode(language, code, testCases) {
+  const tmpDir = path.join(__dirname, 'temp');
+  if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir);
+  const timestamp = Date.now();
+  let srcFile, compileCmd;
 
   switch (language.toLowerCase()) {
     case 'javascript':
     case 'js':
-      srcFile = path.join(tmpDir, 'main.js');
+      srcFile = path.join(tmpDir, `main_${timestamp}.js`);
       fs.writeFileSync(srcFile, code);
-      cmd = `node ${srcFile}`;
+      compileCmd = (input) => `node ${srcFile}`;
       break;
     case 'python':
     case 'py':
-      srcFile = path.join(tmpDir, 'main.py');
+      srcFile = path.join(tmpDir, `main_${timestamp}.py`);
       fs.writeFileSync(srcFile, code);
-      cmd = `python3 ${srcFile}`;
+      compileCmd = (input) => `python3 ${srcFile}`;
       break;
     case 'cpp':
     case 'c++':
-      srcFile = path.join(tmpDir, 'main.cpp');
+      srcFile = path.join(tmpDir, `main_${timestamp}.cpp`);
       fs.writeFileSync(srcFile, code);
-      cmd = `g++ ${srcFile} -o ${tmpDir}/a.out && ${tmpDir}/a.out`;
+      compileCmd = (input) => `g++ ${srcFile} -o ${tmpDir}/a_${timestamp}.out && ${tmpDir}/a_${timestamp}.out`;
       break;
     case 'java':
-      srcFile = path.join(tmpDir, 'Main.java');
+      srcFile = path.join(tmpDir, `Main_${timestamp}.java`);
       fs.writeFileSync(srcFile, code);
-      cmd = `javac ${srcFile} && java -cp ${tmpDir} Main`;
+      compileCmd = (input) => `javac ${srcFile} && java -cp ${tmpDir} Main_${timestamp}`;
       break;
     default:
-      return res.status(400).json({ error: 'Unsupported language' });
+      throw new Error('Unsupported language');
   }
 
-  const process = exec(cmd, { timeout: 5000 }, (error, stdout, stderr) => {
-    if (error) {
-      return res.json({ success: false, out: stdout, err: stderr || error.message });
-    }
-    res.json({ success: true, out: stdout, err: stderr });
-  });
+  const results = [];
 
-  if (stdin) {
-    process.stdin.write(stdin);
-    process.stdin.end();
+  for (let tc of testCases) {
+    const result = await new Promise((resolve) => {
+      const proc = exec(compileCmd(tc.input), { timeout: 5000 }, (err, stdout, stderr) => {
+        resolve({
+          input: tc.input,
+          expectedOutput: tc.expectedOutput,
+          output: stdout.trim(),
+          error: err ? stderr || err.message : null,
+          passed: stdout.trim() === tc.expectedOutput.trim()
+        });
+      });
+      if (tc.input) {
+        proc.stdin.write(tc.input);
+        proc.stdin.end();
+      }
+    });
+    results.push(result);
+  }
+  return results;
+}
+
+function generateHiddenCases(testCases) {
+  const hidden = [];
+  for (let t of testCases) {
+    // Try to vary numbers if any exist in input
+    if (t.input.match(/\d+/)) {
+      const nums = t.input.match(/\d+/g).map(Number);
+      const modified = nums.map((n) => n + Math.floor(Math.random() * 3 + 1));
+      let newInput = t.input;
+      nums.forEach((n, i) => {
+        newInput = newInput.replace(n, modified[i]);
+      });
+      hidden.push({ input: newInput, expectedOutput: t.expectedOutput });
+    } else {
+      // For string inputs, reverse or shuffle
+      const words = t.input.trim().split(/\s+/);
+      const reversed = words.reverse().join(" ");
+      hidden.push({ input: reversed, expectedOutput: t.expectedOutput });
+    }
+  }
+  return hidden;
+}
+
+app.post('/run', async (req, res) => {
+  const { language, code, testCases } = req.body;
+  if (!language || !code || !Array.isArray(testCases)) return res.status(400).json({ error: 'Missing language, code or testCases array' });
+
+  try {
+    const results = await runCode(language, code, testCases);
+    res.json({ success: true, results });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
 /**
  * POST /api/submit
  * Evaluate code against problem.testcases.
- * This implementation is demo-only: it mocks evaluation.
- * In real system:
- *  - execute each testcase inside sandbox
- *  - compare trimmed stdout to expected
- *  - record result and update user's profile/achievements in DB
  */
 app.post('/api/submit', async (req, res) => {
+  const { problemId, code, language } = req.body;
   try {
-    const { code, language, problemId, userId = '123' } = req.body;
     const problem = await Problem.findOne({ id: problemId });
-    if (!problem) return res.status(404).json({ error: 'problem not found' });
+    if (!problem) return res.status(404).json({ success: false, message: 'Problem not found' });
 
-    // ---------- MOCK EVALUATION ----------
-    // Randomly pass/fail for demo
-    const pass = Math.random() > 0.35;
-    const result = pass ? 'All testcases passed ✅' : 'Failed on testcase 2 ❌';
-
-    // Update user profile demo: increment solvedProblems when passed
-    const user = await User.findOneAndUpdate(
-      { userId },
-      {
-        $inc: pass ? { solvedProblems: 1 } : {},
-        $push: { recentActivity: `${pass ? 'Solved' : 'Attempted'} "${problem.title}" (${new Date().toLocaleString()})` },
-      },
-      { new: true, upsert: true }
-    );
-
-    // Simple achievement logic (demo)
-    const achievements = user.achievements || [];
-    if (pass && user.solvedProblems + (pass ? 1 : 0) >= 10 && !achievements.includes('Problem Solver')) {
-      achievements.push('Problem Solver');
+    let hiddenCases = problem.hiddenTestcases;
+    if (!hiddenCases || hiddenCases.length === 0) {
+      hiddenCases = TestCaseGenerator.generate(problem);
+      problem.hiddenTestcases = hiddenCases;
+      await problem.save();
     }
-    // persist achievements
-    user.achievements = achievements;
-    await user.save();
 
-    return res.json({ result, passed: pass, achievements });
-    // ---------------------------------------
+    const results = [];
+    for (const test of hiddenCases) {
+      const inputFile = path.join('/tmp', `input_${Date.now()}.txt`);
+      const codeFile = path.join('/tmp', `code_${Date.now()}`);
+      fs.writeFileSync(inputFile, test.in);
+
+      let command = '';
+      if (language === 'cpp') {
+        fs.writeFileSync(`${codeFile}.cpp`, code);
+        command = `g++ ${codeFile}.cpp -o ${codeFile} && ${codeFile} < ${inputFile}`;
+      } else if (language === 'java') {
+        fs.writeFileSync(`${codeFile}.java`, code);
+        command = `javac ${codeFile}.java && java -cp /tmp $(basename ${codeFile}) < ${inputFile}`;
+      } else if (language === 'python') {
+        fs.writeFileSync(`${codeFile}.py`, code);
+        command = `python3 ${codeFile}.py < ${inputFile}`;
+      } else if (language === 'javascript') {
+        fs.writeFileSync(`${codeFile}.js`, code);
+        command = `node ${codeFile}.js < ${inputFile}`;
+      }
+
+      const output = await new Promise(resolve => {
+        exec(command, { timeout: 5000 }, (error, stdout, stderr) => {
+          if (error || stderr) {
+            resolve({ output: stderr || error.message, error: true });
+          } else {
+            resolve({ output: stdout.trim(), error: false });
+          }
+        });
+      });
+
+      const passed = !output.error && output.output === test.out.trim();
+      results.push({ input: test.in, output: output.output, expectedOutput: test.out, passed });
+    }
+
+    const allPassed = results.every(r => r.passed);
+    res.json({ success: true, message: allPassed ? '🎉 All test cases passed!' : '❌ Some test cases failed', results });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'server error' });
+    res.status(500).json({ success: false, message: 'Server error', error: err.message });
   }
 });
 

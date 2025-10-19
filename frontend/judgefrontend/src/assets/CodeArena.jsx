@@ -15,6 +15,14 @@ export default function CodeArena() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [search, setSearch] = useState("");
   const [userProfile, setUserProfile] = useState(null);
+  const [results, setResults] = useState([]);
+
+  const defaultCodes = {
+    javascript: `function solve(input) {\n  // write your code here\n  return input;\n}\n\nconsole.log(solve('Hello World'));`,
+    python: `def solve(input):\n    # write your code here\n    return input\n\nprint(solve('Hello World'))`,
+    cpp: `#include <bits/stdc++.h>\nusing namespace std;\nint main(){\n  string input;\n  getline(cin, input);\n  cout << input;\n  return 0;\n}`,
+    java: `import java.util.*;\nclass Main {\n  public static void main(String[] args) {\n    Scanner sc = new Scanner(System.in);\n    String input = sc.nextLine();\n    System.out.println(input);\n  }\n}`
+  };
 
   useEffect(() => {
     const fetchProblems = async () => {
@@ -52,6 +60,8 @@ export default function CodeArena() {
     fetchProblems();
   }, []);
 
+  useEffect(()=> setCode(defaultCodes[language]),[language])
+
   const selectedProblem = problems.find((p) => p.id === selectedProblemId);
 
   useEffect(() => {
@@ -71,17 +81,25 @@ export default function CodeArena() {
   async function handleRun() {
     if (!selectedProblem) return;
     setIsRunning(true);
-    setOutput("");
+    setResults([]);
     try {
-      const res = await fetch("http://localhost:8080/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, language, stdin }),
+      const res = await fetch('http://localhost:8080/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          code,
+          language,
+          testCases: selectedProblem.examples.map(ex => ({ input: ex.in, expectedOutput: ex.out }))
+        })
       });
       const data = await res.json();
-      setOutput(data.output);
+      if (data.success) {
+        setResults(data.results);
+      } else {
+        setResults([{ input: '', output: '', expectedOutput: '', passed: false, error: data.error }]);
+      }
     } catch (err) {
-      setOutput("Error connecting to backend");
+      setResults([{ input: '', output: '', expectedOutput: '', passed: false, error: '⚠️ Error connecting to backend' }]);
     }
     setIsRunning(false);
   }
@@ -89,20 +107,16 @@ export default function CodeArena() {
   async function handleSubmit() {
     if (!selectedProblem) return;
     setIsSubmitting(true);
-    setOutput("");
     try {
-      const res = await fetch("http://localhost:8080/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, language, problemId: selectedProblem.id }),
+      const res = await fetch('http://localhost:8080/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ problemId: selectedProblem.id, code, language })
       });
       const data = await res.json();
-      setOutput(data.result);
-      if (data.achievements) {
-        setUserProfile((prev) => ({ ...prev, achievements: data.achievements }));
-      }
+      alert(data.message || 'Submission successful!');
     } catch (err) {
-      setOutput("Error connecting to backend");
+      alert('Submission failed. Please try again.');
     }
     setIsSubmitting(false);
   }
@@ -126,186 +140,109 @@ export default function CodeArena() {
   if (!selectedProblem) return <div className="p-10 text-center">No problem selected</div>;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
-      {/* HEADER */}
-      <header className="bg-white border-b shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-md bg-gradient-to-tr from-indigo-600 to-sky-400 flex items-center justify-center text-white font-bold">
-              CA
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold">CodeArena</h1>
-              <p className="text-xs text-slate-500">
-                Practice, compete, and level up — demo UI
-              </p>
-            </div>
+     <div className="min-h-screen bg-gray-50 p-6 flex flex-col gap-4">
+      <h2 className="text-2xl font-bold text-center text-blue-600">💻 CodeArena</h2>
+
+      <div className="flex flex-col md:flex-row gap-4">
+        <div className="md:w-1/3 bg-white rounded-xl shadow-md p-4 border border-gray-200">
+          <h3 className="text-lg font-semibold mb-2">Select Problem</h3>
+          <select
+            className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-400"
+            value={selectedProblemId || ''}
+            onChange={e => {
+              const id = e.target.value;
+              setSelectedProblemId(id);
+              const prob = problems.find(p => p.id === id);
+              if (prob) setCode(prob.defaultCode || defaultCodes[language]);
+            }}
+          >
+            {problems.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+          </select>
+
+          <div className="mt-4">
+            <h4 className="text-md font-semibold text-gray-700">Problem Statement</h4>
+            <p className="text-gray-600 text-sm mt-2">{selectedProblem.statement || 'Loading problem...'}</p>
           </div>
 
-          <div className="flex items-center gap-3">
-            {view === "problem" && (
-              <input
-                type="text"
-                placeholder="Search problems, tags..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="px-3 py-2 border rounded-md bg-slate-50 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              />
-            )}
-            <button
-              onClick={() => setView(view === "problem" ? "profile" : "problem")}
-              className="px-3 py-2 bg-indigo-600 text-white rounded-md text-sm"
-            >
-              {view === "problem" ? "My Profile" : "Back to Problems"}
-            </button>
+          <div className="mt-4">
+            <h4 className="font-semibold text-gray-700">Constraints</h4>
+            <p className="text-gray-500 text-sm">{selectedProblem.constraints}</p>
+          </div>
+
+          <div className="mt-4">
+            <h4 className="font-semibold text-gray-700">Examples</h4>
+            <div className="space-y-2 text-sm">
+              {selectedProblem.examples.map((ex, idx) => (
+                <div key={idx} className="border p-2 rounded-lg bg-gray-50">
+                  <p><strong>Input:</strong> {ex.in}</p>
+                  <p><strong>Expected:</strong> {ex.out}</p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
-      </header>
 
-      {/* MAIN */}
-      {view === "problem" ? (
-        <main className="max-w-7xl mx-auto px-4 py-6 grid grid-cols-12 gap-4">
-          {/* LEFT: Problem List */}
-          <aside className="col-span-3 bg-white border rounded-lg p-3 h-[70vh] overflow-auto">
-            <h2 className="font-semibold mb-3">Problems</h2>
-            <div className="space-y-2">
-              {filtered.map((p) => (
-                <motion.div
-                  key={p.id}
-                  onClick={() => setSelectedProblemId(p.id)}
-                  whileHover={{ scale: 1.01 }}
-                  className={`p-3 rounded-md cursor-pointer border ${
-                    p.id === selectedProblemId
-                      ? "border-indigo-300 bg-indigo-50"
-                      : "border-transparent hover:border-slate-200"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-medium">{p.title}</div>
-                      <div className="text-xs text-slate-500">
-                        {p.tags.join(" • ")}
-                      </div>
-                    </div>
-                    <div
-                      className={`px-2 py-1 text-xs rounded-full ${
-                        p.difficulty === "Easy"
-                          ? "bg-green-100 text-green-700"
-                          : p.difficulty === "Medium"
-                          ? "bg-yellow-100 text-yellow-700"
-                          : "bg-red-100 text-red-700"
-                      }`}
-                    >
-                      {p.difficulty}
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-              {filtered.length === 0 && (
-                <div className="text-sm text-slate-500">
-                  No problems match your search.
+        <div className="flex-1 bg-white rounded-xl shadow-md p-4 border border-gray-200">
+          <h3 className="text-lg font-semibold mb-2">Your Code</h3>
+          <textarea
+            value={code}
+            onChange={e => setCode(e.target.value)}
+            rows={15}
+            className="w-full font-mono p-3 border rounded-lg bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+
+          <div className="mt-4 flex justify-between items-center">
+            <div>
+              <label className="font-semibold text-gray-700 mr-2">Language:</label>
+              <select
+                value={language}
+                onChange={e => setLanguage(e.target.value)}
+                className="border p-2 rounded-lg bg-white focus:ring-2 focus:ring-blue-400"
+              >
+                <option value="javascript">JavaScript</option>
+                <option value="python">Python</option>
+                <option value="cpp">C++</option>
+                <option value="java">Java</option>
+              </select>
+            </div>
+
+            <div className="space-x-3">
+              <button
+                onClick={handleRun}
+                disabled={isRunning}
+                className={`px-5 py-2 rounded-lg font-semibold text-white ${isRunning ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'}`}
+              >
+                {isRunning ? 'Running...' : 'Run Code'}
+              </button>
+
+              <button
+                onClick={handleSubmit}
+                disabled={isSubmitting}
+                className={`px-5 py-2 rounded-lg font-semibold text-white ${isSubmitting ? 'bg-gray-400' : 'bg-green-600 hover:bg-green-700'}`}
+              >
+                {isSubmitting ? 'Submitting...' : 'Submit Code'}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-6 bg-gray-900 text-white p-4 rounded-lg font-mono overflow-auto">
+            <h4 className="font-semibold mb-2 text-yellow-400">Results:</h4>
+            {results.length === 0 ? (
+              <p className="text-gray-300">Run your code to see test results here.</p>
+            ) : (
+              results.map((r, i) => (
+                <div key={i} className={`p-2 rounded-md mb-3 ${r.passed ? 'bg-green-700/40' : 'bg-red-700/40'}`}>
+                  <p><strong>Input:</strong> {r.input}</p>
+                  <p><strong>Output:</strong> {r.output}</p>
+                  <p><strong>Expected:</strong> {r.expectedOutput}</p>
+                  <p><strong>Verdict:</strong> {r.passed ? '✅ Passed' : '❌ Failed'}</p>
+                  {r.error && <p className="text-red-300">Error: {r.error}</p>}
                 </div>
-              )}
-            </div>
-          </aside>
-
-          {/* CENTER: Editor */}
-          <section className="col-span-6 bg-white border rounded-lg p-3 flex flex-col" style={{ minHeight: "70vh" }}>
-            <div className="flex items-center justify-between mb-3 gap-3">
-              <div>
-                <h3 className="text-lg font-semibold">{selectedProblem.title}</h3>
-                <div className="text-base text-slate-700 mt-1 leading-relaxed">
-                  {selectedProblem.statement}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <select
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                  className="px-2 py-1 border rounded-md text-sm"
-                >
-                  <option value="javascript">JavaScript (Node)</option>
-                  <option value="python">Python 3</option>
-                  <option value="cpp">C++</option>
-                </select>
-                <button
-                  onClick={handleRun}
-                  className="px-3 py-2 bg-indigo-600 text-white rounded-md text-sm"
-                  disabled={isRunning}
-                >
-                  {isRunning ? "Running..." : "Run (Ctrl+Enter)"}
-                </button>
-                <button
-                  onClick={handleSubmit}
-                  className="px-3 py-2 border rounded-md text-sm"
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? "Submitting..." : "Submit"}
-                </button>
-              </div>
-            </div>
-
-            <textarea
-              ref={editorRef}
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              spellCheck={false}
-              className="flex-1 p-3 font-mono text-sm resize-none outline-none border rounded-md h-[50%] mb-3"
-            />
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-slate-600">Custom Input</label>
-                <textarea
-                  value={stdin}
-                  onChange={(e) => setStdin(e.target.value)}
-                  className="w-full mt-1 p-2 border rounded-md h-24 text-sm font-mono"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-600">Output</label>
-                <pre className="w-full mt-1 p-2 border rounded-md h-24 text-sm bg-slate-900 text-white overflow-auto">
-                  {output || "<no output>"}
-                </pre>
-              </div>
-            </div>
-          </section>
-
-          {/* RIGHT: Details */}
-          <aside className="col-span-3 bg-white border rounded-lg p-3 h-[70vh] overflow-auto">
-            <h4 className="font-semibold mb-2">Details</h4>
-            <div className="text-sm text-slate-600">
-              <div>
-                <strong>Constraints:</strong> {selectedProblem.constraints}
-              </div>
-              <div className="mt-2">
-                <strong>Tags:</strong> {selectedProblem.tags.join(", ")}
-              </div>
-            </div>
-
-            <h4 className="font-semibold mt-4 mb-2">Examples</h4>
-            <div className="space-y-2">
-              {selectedProblem.examples.map((ex, idx) => (
-                <div
-                  key={idx}
-                  className="p-2 border rounded-md bg-slate-50 text-sm"
-                >
-                  <div className="text-xs text-slate-500">Input</div>
-                  <div className="font-mono text-sm">{ex.in}</div>
-                  <div className="text-xs text-slate-500 mt-2">Output</div>
-                  <div className="font-mono text-sm">{ex.out}</div>
-                </div>
-              ))}
-            </div>
-          </aside>
-        </main>
-      ) : (
-        <main className="max-w-4xl mx-auto px-4 py-6">{/* Profile page */}</main>
-      )}
-
-      <footer className="max-w-7xl mx-auto px-4 pb-6 text-center text-xs text-slate-500">
-        Built with ❤️ — demo UI. Backend connected at http://localhost:5000.
-      </footer>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
