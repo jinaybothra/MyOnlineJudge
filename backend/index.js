@@ -247,10 +247,12 @@ app.post('/api/submit', async (req, res) => {
     let hiddenCases = problem.hiddenTestcases;
     if (!hiddenCases || hiddenCases.length === 0) {
       hiddenCases = TestCaseGenerator.generate(problem);
-      problem.hiddenTestcases = hiddenCases;
+      problem.testcases = hiddenCases;
       await problem.save();
     }
 
+    const tmpDir = path.join(__dirname, 'temp');
+    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir);
     const results = [];
     for (const test of hiddenCases) {
       const inputFile = path.join('/tmp', `input_${Date.now()}.txt`);
