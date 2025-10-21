@@ -5,7 +5,7 @@ const bodyParser = require('body-parser');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
-const fs = require('fs/promises');
+const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
 
@@ -145,7 +145,7 @@ app.use(bodyParser.json({ limit: '1mb' }));
 
 async function runCode(language, code, testCases) {
   const tmpDir = path.join(__dirname, 'temp');
-  if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir);
+  fs.mkdirSync(tmpDir, {recursive: true})
   const timestamp = Date.now();
   let srcFile, compileCmd;
 
@@ -154,7 +154,7 @@ async function runCode(language, code, testCases) {
     case 'js':
       srcFile = path.join(tmpDir, `main_${timestamp}.js`);
       fs.writeFileSync(srcFile, code);
-      compileCmd = (input) => `node ${srcFile}`;
+      compileCmd = (input) => `node ${srcFile} ${input}`;
       break;
     case 'python':
     case 'py':
@@ -244,7 +244,7 @@ app.post('/api/submit', async (req, res) => {
     const problem = await Problem.findOne({ id: problemId });
     if (!problem) return res.status(404).json({ success: false, message: 'Problem not found' });
 
-    let hiddenCases = problem.hiddenTestcases;
+    let hiddenCases = generateHiddenCases(problem.examples);
     if (!hiddenCases || hiddenCases.length === 0) {
       hiddenCases = TestCaseGenerator.generate(problem);
       problem.testcases = hiddenCases;

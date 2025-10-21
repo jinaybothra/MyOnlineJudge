@@ -13,6 +13,7 @@ dist-ssr
 *.local
 .env
 testGenerator.js
+temp
 
 # Editor directories and files
 .vscode/*
