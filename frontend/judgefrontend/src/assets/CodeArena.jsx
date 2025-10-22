@@ -7,7 +7,7 @@ export default function CodeArena() {
   const [problems, setProblems] = useState([]);
   const [selectedProblemId, setSelectedProblemId] = useState(null);
 
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState("function twoSum(nums, target) {  \n// write your solution here  \nreturn [];\n}\nconst args = process.argv.slice(3);\nif (args.length < 3) {\n  console.error(\"Usage: node twoSum.js <num1> <num2> ... <target>\");\n  process.exit(1);\n}\n\nconst num = parseInt(args[0]);\nconst target = parseInt(args[args.length - 1]);\nconst nums = args.slice(1, args.length - 1).map(Number);\nconst result = twoSum(nums, target);\nconst str = `[${result.join(\",\")}]`;\nconsole.log(str);");
   const [language, setLanguage] = useState("javascript");
   const [stdin, setStdin] = useState("");
   const [output, setOutput] = useState("");
@@ -18,7 +18,7 @@ export default function CodeArena() {
   const [results, setResults] = useState([]);
 
   const defaultCodes = {
-    javascript: `function solve(input) {\n  // write your code here\n  return input;\n}\n\nconsole.log(solve('Hello World'));`,
+    javascript: "function twoSum(nums, target) {  \n// write your solution here  \nreturn [];\n}\nconst args = process.argv.slice(3);\nif (args.length < 3) {\n  console.error(\"Usage: node twoSum.js <num1> <num2> ... <target>\");\n  process.exit(1);\n}\n\nconst num = parseInt(args[0]);\nconst target = parseInt(args[args.length - 1]);\nconst nums = args.slice(1, args.length - 1).map(Number);\nconst result = twoSum(nums, target);\nconst str = `[${result.join(\",\")}]`;\nconsole.log(str);",
     python: `def solve(input):\n    # write your code here\n    return input\n\nprint(solve('Hello World'))`,
     cpp: `#include <bits/stdc++.h>\nusing namespace std;\nint main(){\n  string input;\n  getline(cin, input);\n  cout << input;\n  return 0;\n}`,
     java: `import java.util.*;\nclass Main {\n  public static void main(String[] args) {\n    Scanner sc = new Scanner(System.in);\n    String input = sc.nextLine();\n    System.out.println(input);\n  }\n}`
@@ -60,13 +60,12 @@ export default function CodeArena() {
     fetchProblems();
   }, []);
 
-  useEffect(()=> setCode(defaultCodes[language]),[language])
-
   const selectedProblem = problems.find((p) => p.id === selectedProblemId);
+  useEffect(()=> setCode(selectedProblem?.defaultCode[language] || defaultCodes[language]),[language])
 
   useEffect(() => {
     if (selectedProblem) {
-      setCode(selectedProblem.defaultCode || "");
+      setCode(selectedProblem.defaultCode[language] || defaultCodes[language]);
       setOutput("");
     }
   }, [selectedProblemId]);
@@ -108,7 +107,7 @@ export default function CodeArena() {
     if (!selectedProblem) return;
     setIsSubmitting(true);
     try {
-      const res = await fetch('http://localhost:8080/submit', {
+      const res = await fetch('http://localhost:8080/api/submits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ problemId: selectedProblem.id, code, language })
@@ -153,7 +152,7 @@ export default function CodeArena() {
               const id = e.target.value;
               setSelectedProblemId(id);
               const prob = problems.find(p => p.id === id);
-              if (prob) setCode(prob.defaultCode || defaultCodes[language]);
+              if (prob) setCode(prob.defaultCode[language] || defaultCodes[language]);
             }}
           >
             {problems.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
@@ -196,7 +195,7 @@ export default function CodeArena() {
               <label className="font-semibold text-gray-700 mr-2">Language:</label>
               <select
                 value={language}
-                onChange={e => setLanguage(e.target.value)}
+                onChange={e => {setLanguage(e.target.value)}}
                 className="border p-2 rounded-lg bg-white focus:ring-2 focus:ring-blue-400"
               >
                 <option value="javascript">JavaScript</option>

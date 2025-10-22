@@ -13,7 +13,7 @@ const ProblemSchema = new mongoose.Schema({
   statement: String,
   constraints: String,
   examples: [{ in: String, out: String }],
-  defaultCode: String,
+  defaultCode: {javascript: String, java: String, cpp: String, python: String},
   testcases: [TestcaseSchema], // used by /submit to evaluate
 }, { timestamps: true });
 

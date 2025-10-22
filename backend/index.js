@@ -202,25 +202,28 @@ async function runCode(language, code, testCases) {
 
 function generateHiddenCases(testCases) {
   const hidden = [];
-  for (let t of testCases) {
-    // Try to vary numbers if any exist in input
-    if (t.input.match(/\d+/)) {
-      const nums = t.input.match(/\d+/g).map(Number);
-      const modified = nums.map((n) => n + Math.floor(Math.random() * 3 + 1));
-      let newInput = t.input;
-      nums.forEach((n, i) => {
-        newInput = newInput.replace(n, modified[i]);
-      });
-      hidden.push({ input: newInput, expectedOutput: t.expectedOutput });
+  const randomizeChar = (ch) => {
+    if (/[0-9]/.test(ch)) {
+      return String(Math.floor(Math.random() * 10));
+    } else if (/[a-zA-Z]/.test(ch)) {
+      const isUpper = ch === ch.toUpperCase();
+      const base = isUpper ? 65 : 97;
+      return String.fromCharCode(base + Math.floor(Math.random() * 26));
     } else {
-      // For string inputs, reverse or shuffle
-      const words = t.input.trim().split(/\s+/);
-      const reversed = words.reverse().join(" ");
-      hidden.push({ input: reversed, expectedOutput: t.expectedOutput });
+      return ch;
     }
+  };
+
+  for (let t of testCases) {
+    if (!t.input || typeof t.input !== 'string') continue;
+
+    let newInput = t.input.split('').map(randomizeChar).join('');
+    hidden.push({ input: newInput, expectedOutput: t.expectedOutput });
   }
+
   return hidden;
 }
+
 
 app.post('/run', async (req, res) => {
   const { language, code, testCases } = req.body;
@@ -238,7 +241,7 @@ app.post('/run', async (req, res) => {
  * POST /api/submit
  * Evaluate code against problem.testcases.
  */
-app.post('/api/submit', async (req, res) => {
+app.post('/api/submits', async (req, res) => {
   const { problemId, code, language } = req.body;
   try {
     const problem = await Problem.findOne({ id: problemId });
