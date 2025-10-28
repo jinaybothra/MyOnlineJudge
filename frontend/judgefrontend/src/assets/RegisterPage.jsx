@@ -26,7 +26,7 @@ export default function RegisterPage() {
 
       if (res.ok) {
         setMessage('Registration successful! Redirecting to login...');
-        setTimeout(() => navigate('/login'), 1500);
+        setTimeout(() => navigate('/'), 1500);
       } else {
         setMessage(data.message || 'Registration failed.');
       }

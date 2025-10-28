@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
+import AIReviewer from "./AIReviewer";
 
 export default function CodeArena() {
   const [view, setView] = useState("problem");
@@ -16,9 +17,10 @@ export default function CodeArena() {
   const [search, setSearch] = useState("");
   const [userProfile, setUserProfile] = useState(null);
   const [results, setResults] = useState([]);
+  const [isAIReviewerOpen, setIsAIReviewerOpen] = useState(false);
 
   const defaultCodes = {
-    javascript: "function twoSum(nums, target) {  \n// write your solution here  \nreturn [];\n}\nconst args = process.argv.slice(3);\nif (args.length < 3) {\n  console.error(\"Usage: node twoSum.js <num1> <num2> ... <target>\");\n  process.exit(1);\n}\n\nconst num = parseInt(args[0]);\nconst target = parseInt(args[args.length - 1]);\nconst nums = args.slice(1, args.length - 1).map(Number);\nconst result = twoSum(nums, target);\nconst str = `[${result.join(\",\")}]`;\nconsole.log(str);",
+    javascript: "function twoSum(nums, target) {  \n// write your solution here  \nreturn [];\n}\nconst args = process.argv.slice(2);\nif (args.length < 3) {\n  console.error(\"Usage: node twoSum.js <num1> <num2> ... <target>\");\n  process.exit(1);\n}\n\nconst num = parseInt(args[0]);\nconst target = parseInt(args[args.length - 1]);\nconst nums = args.slice(1, args.length - 1).map(Number);\nconst result = twoSum(nums, target);\nconst str = `[${result.join(\",\")}]`;\nconsole.log(str);",
     python: `def solve(input):\n    # write your code here\n    return input\n\nprint(solve('Hello World'))`,
     cpp: `#include <bits/stdc++.h>\nusing namespace std;\nint main(){\n  string input;\n  getline(cin, input);\n  cout << input;\n  return 0;\n}`,
     java: `import java.util.*;\nclass Main {\n  public static void main(String[] args) {\n    Scanner sc = new Scanner(System.in);\n    String input = sc.nextLine();\n    System.out.println(input);\n  }\n}`
@@ -70,25 +72,31 @@ export default function CodeArena() {
     }
   }, [selectedProblemId]);
 
-  useEffect(() => {
-    fetch("http://localhost:8080/user/123")
-      .then((res) => res.json())
-      .then((data) => setUserProfile(data))
-      .catch(() => setUserProfile(null));
-  }, []);
+  // useEffect(() => {
+  //   fetch("http://localhost:8080/user/123")
+  //     .then((res) => res.json())
+  //     .then((data) => setUserProfile(data))
+  //     .catch(() => setUserProfile(null));
+  // }, []);
 
   async function handleRun() {
     if (!selectedProblem) return;
     setIsRunning(true);
     setResults([]);
     try {
+      const firstTestCase = selectedProblem.testcases;
+      console.log(selectedProblem);
+    const testCases = [{
+      input: firstTestCase.input,
+      output: firstTestCase.output
+    }];
       const res = await fetch('http://localhost:8080/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           code,
           language,
-          testCases: selectedProblem.examples.map(ex => ({ input: ex.in, expectedOutput: ex.out }))
+          testCases: selectedProblem.testcases.map(ex => ({ input: ex.input, expectedOutput: ex.output }))
         })
       });
       const data = await res.json();
@@ -242,6 +250,34 @@ export default function CodeArena() {
           </div>
         </div>
       </div>
+      {/* AI Reviewer Toggle Button */}
+      {!isAIReviewerOpen && (
+        <motion.button
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          onClick={() => setIsAIReviewerOpen(true)}
+          className="fixed bottom-6 right-6 w-16 h-16 bg-gradient-to-r from-purple-600 to-blue-600 text-white rounded-full shadow-2xl flex items-center justify-center hover:shadow-purple-500/50 transition z-40"
+        >
+          <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+          </svg>
+        </motion.button>
+      )}
+
+      {/* AI Reviewer Component */}
+      <AnimatePresence>
+        {isAIReviewerOpen && (
+          <AIReviewer
+            code={code}
+            language={language}
+            selectedProblem={selectedProblem}
+            isVisible={isAIReviewerOpen}
+            onClose={() => setIsAIReviewerOpen(false)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

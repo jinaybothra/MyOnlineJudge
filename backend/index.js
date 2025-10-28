@@ -5,9 +5,11 @@ const bodyParser = require('body-parser');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cors = require('cors');
-const fs = require('fs');
+const fs = require('fs/promises');
+const fsSync = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const Problem = require('./models/Problem');
 const User = require('./models/User');
@@ -24,13 +26,91 @@ mongoose.connect(MONGO, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('Mongo connected'))
   .catch((e) => console.error('Mongo connection error', e));
 
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// AI Code Review endpoint
+app.post('/api/ai-review', async (req, res) => {
+  console.log('\n📨 AI Review request received');
+  
+  try {
+    const { code, language, problem, userMessage, conversationHistory } = req.body;
+
+    if (!code || !language || !userMessage) {
+      return res.status(400).json({
+        success: false,
+        error: 'Missing required fields'
+      });
+    }
+
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({
+        success: false,
+        error: 'Gemini API key not configured'
+      });
+    }
+
+    // Get model
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' });
+
+    let conversationContext = '';
+    if (conversationHistory && conversationHistory.length > 1) {
+      conversationContext = conversationHistory.slice(1).map(msg => 
+        `${msg.role === 'user' ? 'User' : 'Assistant'}: ${msg.content}`
+      ).join('\n\n');
+    }
+
+    const prompt = `You are an expert code reviewer and programming mentor.
+
+${conversationContext ? 'Previous conversation:\n' + conversationContext + '\n\n' : ''}
+
+**Problem Statement:**
+${problem || 'No problem statement provided'}
+
+**Programming Language:** ${language}
+
+**Current Code:**
+\`\`\`${language}
+${code}
+\`\`\`
+
+**User Question:**
+${userMessage}
+
+Please provide helpful, constructive feedback using markdown formatting.`;
+
+    console.log('🤖 Calling Gemini API...');
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const aiResponse = response.text();
+
+    console.log('✅ Gemini response received');
+    console.log('Response length:', aiResponse.length);
+
+    res.json({
+      success: true,
+      response: aiResponse,
+      model: 'gemini-pro'
+    });
+
+  } catch (error) {
+    console.error('❌ AI Review error:', error);
+
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+
 /**
  * GET /api/problems
  * returns list of problems
  */
 app.get('/api/problems', async (req, res) => {
   try {
-    const problems = await Problem.find().select('-testcases -__v'); // hide testcases for normal list
+    const problems = await Problem.find();
     res.json( problems );
   } catch (err) {
     console.error(err);
@@ -66,7 +146,6 @@ app.get('/api/user/:id', async (req, res) => {
     if (!u) {
       // create demo user if not exists
       const newU = await User.create({
-        userId: req.params.id,
         name: 'Demo User',
         solvedProblems: 0,
         streak: 0,
@@ -143,35 +222,97 @@ app.post('/auth/login', async (req, res) => {
 
 app.use(bodyParser.json({ limit: '1mb' }));
 
+const TEMP_DIR = path.join(__dirname, 'temp');
+const TIMEOUT = 5000; // 5 seconds timeout
+
+// Ensure temp directory exists
+async function ensureTempDir() {
+  try {
+    await fs.mkdir(TEMP_DIR, { recursive: true });
+  } catch (err) {
+    console.error('Error creating temp directory:', err);
+  }
+}
+
+ensureTempDir();
+
+// Generate unique filename
+function generateFilename(language) {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(7);
+  const extensions = {
+    javascript: 'js',
+    python: 'py',
+    cpp: 'cpp',
+    java: 'java'
+  };
+  return `code_${timestamp}_${random}.${extensions[language]}`;
+}
+
+// Execute code with timeout
+function executeWithTimeout(command, timeout) {
+  return new Promise((resolve, reject) => {
+    const child = exec(command, { timeout }, (error, stdout, stderr) => {
+      if (error) {
+        if (error.killed) {
+          reject(new Error('Execution timeout exceeded'));
+        } else {
+          reject(new Error(stderr || error.message));
+        }
+      } else {
+        resolve(stdout.trim());
+      }
+    });
+  });
+}
+
+// Run code for specific language
 async function runCode(language, code, testCases) {
   const tmpDir = path.join(__dirname, 'temp');
-  fs.mkdirSync(tmpDir, {recursive: true})
+  
+  if (!fsSync.existsSync(tmpDir)) {
+    fsSync.mkdirSync(tmpDir, { recursive: true });
+  }
+  
   const timestamp = Date.now();
   let srcFile, compileCmd;
+
+  console.log('=== RUN CODE DEBUG ===');
+  console.log('Language:', language);
+  console.log('Test cases:', JSON.stringify(testCases, null, 2));
 
   switch (language.toLowerCase()) {
     case 'javascript':
     case 'js':
       srcFile = path.join(tmpDir, `main_${timestamp}.js`);
-      fs.writeFileSync(srcFile, code);
-      compileCmd = (input) => `node ${srcFile} ${input}`;
+      fsSync.writeFileSync(srcFile, code);
+      // Execute: node "filename" "inputfile"
+      compileCmd = (inputFile) => `node "${srcFile}" "${inputFile}"`;
       break;
     case 'python':
     case 'py':
       srcFile = path.join(tmpDir, `main_${timestamp}.py`);
-      fs.writeFileSync(srcFile, code);
-      compileCmd = (input) => `python3 ${srcFile}`;
+      fsSync.writeFileSync(srcFile, code);
+      // Execute: python3 "filename" "inputfile"
+      compileCmd = (inputFile) => `python3 "${srcFile}" "${inputFile}"`;
       break;
     case 'cpp':
     case 'c++':
       srcFile = path.join(tmpDir, `main_${timestamp}.cpp`);
-      fs.writeFileSync(srcFile, code);
-      compileCmd = (input) => `g++ ${srcFile} -o ${tmpDir}/a_${timestamp}.out && ${tmpDir}/a_${timestamp}.out`;
+      const cppOut = path.join(tmpDir, `a_${timestamp}.out`);
+      fsSync.writeFileSync(srcFile, code);
+      // Execute: g++ "filename" -o "output" && "output" "inputfile"
+      compileCmd = (inputFile) => `g++ "${srcFile}" -o "${cppOut}" && "${cppOut}" "${inputFile}"`;
       break;
     case 'java':
-      srcFile = path.join(tmpDir, `Main_${timestamp}.java`);
-      fs.writeFileSync(srcFile, code);
-      compileCmd = (input) => `javac ${srcFile} && java -cp ${tmpDir} Main_${timestamp}`;
+      const javaDir = path.join(tmpDir, `java_${timestamp}`);
+      if (!fsSync.existsSync(javaDir)) {
+        fsSync.mkdirSync(javaDir, { recursive: true });
+      }
+      srcFile = path.join(javaDir, `Main.java`);
+      fsSync.writeFileSync(srcFile, code);
+      // Execute: javac "filename" && java -cp "dir" Main "inputfile"
+      compileCmd = (inputFile) => `javac "${srcFile}" && java -cp "${javaDir}" Main "${inputFile}"`;
       break;
     default:
       throw new Error('Unsupported language');
@@ -179,26 +320,49 @@ async function runCode(language, code, testCases) {
 
   const results = [];
 
-  for (let tc of testCases) {
+  for (let i = 0; i < testCases.length; i++) {
+    const tc = testCases[i];
     const result = await new Promise((resolve) => {
-      const proc = exec(compileCmd(tc.input), { timeout: 5000 }, (err, stdout, stderr) => {
+      const inputData = tc.input || '';
+      const expectedOutput = tc.expectedOutput || '';
+      
+      // Create input file for this test case
+      const inputFile = path.join(tmpDir, `input_${timestamp}_${i}.txt`);
+      fsSync.writeFileSync(inputFile, inputData);
+      
+      const cmd = compileCmd(inputFile);
+      console.log('Executing command:', cmd);
+      
+      exec(cmd, { 
+        timeout: 5000,
+        maxBuffer: 1024 * 1024,
+        shell: true
+      }, (err, stdout, stderr) => {
+        console.log('stdout:', stdout);
+        console.log('stderr:', stderr);
+        if (err) console.log('error:', err.message);
+        
+        const actualOutput = stdout.trim();
+        const expected = expectedOutput.trim();
+        
         resolve({
-          input: tc.input,
-          expectedOutput: tc.expectedOutput,
-          output: stdout.trim(),
-          error: err ? stderr || err.message : null,
-          passed: stdout.trim() === tc.expectedOutput.trim()
+          input: inputData,
+          expectedOutput: expected,
+          output: actualOutput,
+          error: err ? (stderr || err.message) : null,
+          passed: actualOutput === expected
         });
       });
-      if (tc.input) {
-        proc.stdin.write(tc.input);
-        proc.stdin.end();
-      }
     });
+    
     results.push(result);
   }
+  
+  console.log('Files kept at:', tmpDir);
+  
   return results;
-}
+};
+
 
 function generateHiddenCases(testCases) {
   const hidden = [];
@@ -297,6 +461,9 @@ app.post('/api/submits', async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error', error: err.message });
   }
 });
+app.get('/' , (req,res)=>{
+  res.status(200).json({message: "Server running"})
+})
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
