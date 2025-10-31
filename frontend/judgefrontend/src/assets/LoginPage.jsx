@@ -70,7 +70,7 @@ export default function LoginPage({ onLogin }) {
           {success && (
             <button
               type="button"
-              onClick={() => window.location.href = "/codearena"}
+              onClick={() => window.location.href = "/problemlist"}
               className="w-full bg-green-600 text-white py-2 rounded-md hover:bg-green-700 transition-all"
             >
               Go to CodeArena

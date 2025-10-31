@@ -406,61 +406,181 @@ app.post('/run', async (req, res) => {
  * Evaluate code against problem.testcases.
  */
 app.post('/api/submits', async (req, res) => {
-  const { problemId, code, language } = req.body;
-  try {
-    const problem = await Problem.findOne({ id: problemId });
-    if (!problem) return res.status(404).json({ success: false, message: 'Problem not found' });
-
-    let hiddenCases = generateHiddenCases(problem.examples);
-    if (!hiddenCases || hiddenCases.length === 0) {
-      hiddenCases = TestCaseGenerator.generate(problem);
-      problem.testcases = hiddenCases;
-      await problem.save();
-    }
-
-    const tmpDir = path.join(__dirname, 'temp');
-    if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir);
-    const results = [];
-    for (const test of hiddenCases) {
-      const inputFile = path.join('/tmp', `input_${Date.now()}.txt`);
-      const codeFile = path.join('/tmp', `code_${Date.now()}`);
-      fs.writeFileSync(inputFile, test.in);
-
-      let command = '';
-      if (language === 'cpp') {
-        fs.writeFileSync(`${codeFile}.cpp`, code);
-        command = `g++ ${codeFile}.cpp -o ${codeFile} && ${codeFile} < ${inputFile}`;
-      } else if (language === 'java') {
-        fs.writeFileSync(`${codeFile}.java`, code);
-        command = `javac ${codeFile}.java && java -cp /tmp $(basename ${codeFile}) < ${inputFile}`;
-      } else if (language === 'python') {
-        fs.writeFileSync(`${codeFile}.py`, code);
-        command = `python3 ${codeFile}.py < ${inputFile}`;
-      } else if (language === 'javascript') {
-        fs.writeFileSync(`${codeFile}.js`, code);
-        command = `node ${codeFile}.js < ${inputFile}`;
-      }
-
-      const output = await new Promise(resolve => {
-        exec(command, { timeout: 5000 }, (error, stdout, stderr) => {
-          if (error || stderr) {
-            resolve({ output: stderr || error.message, error: true });
-          } else {
-            resolve({ output: stdout.trim(), error: false });
-          }
-        });
+   try {
+    const { code, language, problemId } = req.body;
+    
+    // Validation
+    if (!code || !language || !problemId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Missing required fields: code, language, or problemId' 
       });
-
-      const passed = !output.error && output.output === test.out.trim();
-      results.push({ input: test.in, output: output.output, expectedOutput: test.out, passed });
     }
-
-    const allPassed = results.every(r => r.passed);
-    res.json({ success: true, message: allPassed ? '🎉 All test cases passed!' : '❌ Some test cases failed', results });
-  } catch (err) {
-    res.status(500).json({ success: false, message: 'Server error', error: err.message });
+    
+    // Fetch problem from database to get all test cases
+    const problem = await Problem.findOne({ id: problemId });
+    
+    if (!problem) {
+      return res.status(404).json({
+        success: false,
+        error: 'Problem not found'
+      });
+    }
+    
+    if (!problem.testcases || problem.testcases.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'No test cases found for this problem'
+      });
+    }
+    
+    console.log(`Running ${problem.testcases.length} test cases for problem: ${problemId}`);
+    
+    // Run all test cases using the same format as /run
+    const results = await runTestCases(language, code, problem.testcases);
+    
+    // Calculate statistics
+    const totalTests = results.length;
+    const passedTests = results.filter(r => r.passed).length;
+    const failedTests = totalTests - passedTests;
+    const allPassed = passedTests === totalTests;
+    
+    console.log(`Results: ${passedTests}/${totalTests} passed`);
+    
+    res.json({ 
+      success: true,
+      allPassed,
+      status: allPassed ? 'Accepted' : 'Wrong Answer',
+      totalTests,
+      passedTests,
+      failedTests,
+      results
+    });
+    
+  } catch (error) {
+    console.error('Error in /submit:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
   }
 });
+
+// Helper function to run test cases (same logic as /run but for all test cases)
+async function runTestCases(language, code, testCases) {
+  const tmpDir = path.join(__dirname, 'temp');
+  
+  if (!fsSync.existsSync(tmpDir)) {
+    fsSync.mkdirSync(tmpDir, { recursive: true });
+  }
+  
+  const timestamp = Date.now();
+  let srcFile, compileCmd;
+
+  console.log('=== RUNNING TEST CASES ===');
+  console.log('Language:', language);
+  console.log('Test cases count:', testCases.length);
+
+  // Setup based on language
+  switch (language.toLowerCase()) {
+    case 'javascript':
+    case 'js':
+      srcFile = path.join(tmpDir, `submit_${timestamp}.js`);
+      fsSync.writeFileSync(srcFile, code);
+      compileCmd = (inputFile) => `node "${srcFile}" "${inputFile}"`;
+      break;
+      
+    case 'python':
+    case 'py':
+      srcFile = path.join(tmpDir, `submit_${timestamp}.py`);
+      fsSync.writeFileSync(srcFile, code);
+      compileCmd = (inputFile) => `python3 "${srcFile}" "${inputFile}"`;
+      break;
+      
+    case 'cpp':
+    case 'c++':
+      srcFile = path.join(tmpDir, `submit_${timestamp}.cpp`);
+      const cppOut = path.join(tmpDir, `submit_${timestamp}.out`);
+      fsSync.writeFileSync(srcFile, code);
+      compileCmd = (inputFile) => `g++ "${srcFile}" -o "${cppOut}" && "${cppOut}" "${inputFile}"`;
+      break;
+      
+    case 'java':
+      const javaDir = path.join(tmpDir, `java_submit_${timestamp}`);
+      if (!fsSync.existsSync(javaDir)) {
+        fsSync.mkdirSync(javaDir, { recursive: true });
+      }
+      srcFile = path.join(javaDir, `Main.java`);
+      fsSync.writeFileSync(srcFile, code);
+      compileCmd = (inputFile) => `javac "${srcFile}" && java -cp "${javaDir}" Main "${inputFile}"`;
+      break;
+      
+    default:
+      throw new Error('Unsupported language');
+  }
+
+  const results = [];
+
+  // Run each test case
+  for (let i = 0; i < testCases.length; i++) {
+    const tc = testCases[i];
+    
+    console.log(`\n--- Test Case ${i + 1}/${testCases.length} ---`);
+    
+    const result = await new Promise((resolve) => {
+      const inputData = tc.input || '';
+      const expectedOutput = tc.output || '';
+      
+      // Create input file for this test case
+      const inputFile = path.join(tmpDir, `submit_input_${timestamp}_${i}.txt`);
+      fsSync.writeFileSync(inputFile, inputData);
+      
+      const cmd = compileCmd(inputFile);
+      console.log('Executing:', cmd);
+      console.log('Input:', inputData);
+      console.log('Expected:', expectedOutput);
+      
+      exec(cmd, { 
+        timeout: 5000,
+        maxBuffer: 1024 * 1024,
+        shell: true
+      }, (err, stdout, stderr) => {
+        const actualOutput = stdout.trim();
+        const expected = expectedOutput.trim();
+        const passed = actualOutput === expected;
+        
+        console.log('Output:', actualOutput);
+        console.log('Passed:', passed);
+        
+        if (err) {
+          console.log('Error:', err.message);
+        }
+        if (stderr) {
+          console.log('Stderr:', stderr);
+        }
+        
+        // Return result in the same format as /run endpoint
+        resolve({
+          input: inputData,
+          output: actualOutput,
+          expectedOutput: expected,
+          passed: passed,
+          error: err ? (stderr || err.message) : null
+        });
+      });
+    });
+    
+    results.push(result);
+  }
+  
+  console.log('\n=== TEST CASES COMPLETE ===');
+  console.log('Total:', results.length);
+  console.log('Passed:', results.filter(r => r.passed).length);
+  console.log('Failed:', results.filter(r => !r.passed).length);
+  
+  return results;
+}
+
 app.get('/' , (req,res)=>{
   res.status(200).json({message: "Server running"})
 })

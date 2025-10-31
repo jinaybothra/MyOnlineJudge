@@ -3,6 +3,7 @@ import LoginPage from "./assets/LoginPage";
 import CodeArena from "./assets/CodeArena";
 import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import RegisterPage from "./assets/RegisterPage";
+import ProblemList from "./assets/ProblemList";
 
 function App() {
   const handleLogin = (user) => {
@@ -15,8 +16,12 @@ function App() {
       element: <LoginPage onLogin={handleLogin}/>
     },
     {
-      path: "/codearena",
-      element: <CodeArena/>
+      path: "/problemlist", 
+      element: <ProblemList/>
+    },
+    {
+      path: "/codearena/:slug" ,
+      element: <CodeArena />
     },
     {
       path: "/register",

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import AIReviewer from "./AIReviewer";
+import { useParams } from "react-router-dom";
 
 export default function CodeArena() {
   const [view, setView] = useState("problem");
@@ -18,6 +19,7 @@ export default function CodeArena() {
   const [userProfile, setUserProfile] = useState(null);
   const [results, setResults] = useState([]);
   const [isAIReviewerOpen, setIsAIReviewerOpen] = useState(false);
+  const { slug } = useParams();
 
   const defaultCodes = {
     javascript: "function twoSum(nums, target) {  \n// write your solution here  \nreturn [];\n}\nconst args = process.argv.slice(2);\nif (args.length < 3) {\n  console.error(\"Usage: node twoSum.js <num1> <num2> ... <target>\");\n  process.exit(1);\n}\n\nconst num = parseInt(args[0]);\nconst target = parseInt(args[args.length - 1]);\nconst nums = args.slice(1, args.length - 1).map(Number);\nconst result = twoSum(nums, target);\nconst str = `[${result.join(\",\")}]`;\nconsole.log(str);",
@@ -25,6 +27,15 @@ export default function CodeArena() {
     cpp: `#include <bits/stdc++.h>\nusing namespace std;\nint main(){\n  string input;\n  getline(cin, input);\n  cout << input;\n  return 0;\n}`,
     java: `import java.util.*;\nclass Main {\n  public static void main(String[] args) {\n    Scanner sc = new Scanner(System.in);\n    String input = sc.nextLine();\n    System.out.println(input);\n  }\n}`
   };
+
+  useEffect(() => {
+  fetch(`http://localhost:8080/api/problems/${slug}`)
+    .then(res => res.json())
+    .then(data => {
+      setSelectedProblemId(`${slug}`);
+      setCode(data.defaultCode?.javascript || '');
+    });
+}, [slug]);
 
   useEffect(() => {
     const fetchProblems = async () => {
@@ -48,10 +59,7 @@ export default function CodeArena() {
 
         setProblems(fetchedProblems);
 
-        if (fetchedProblems.length > 0) {
-          setSelectedProblemId(fetchedProblems[0].id);
-          setCode(fetchedProblems[0].defaultCode || "");
-        }
+
       } catch (err) {
         console.error("Error fetching problems:", err);
       } finally {
@@ -121,11 +129,35 @@ export default function CodeArena() {
         body: JSON.stringify({ problemId: selectedProblem.id, code, language })
       });
       const data = await res.json();
-      alert(data.message || 'Submission successful!');
+      if (data.success) {
+        setResults(data.results);
+        
+        if (data.allPassed) {
+          alert(`🎉 Accepted!\n\nAll ${data.totalTests} test cases passed!`);
+        } else {
+          alert(`❌ ${data.status}\n\n${data.passedTests}/${data.totalTests} test cases passed`);
+        }
+      } else {
+        setResults([{ 
+          input: '', 
+          output: '', 
+          expectedOutput: '', 
+          passed: false, 
+          error: data.error 
+        }]);
+      }
     } catch (err) {
-      alert('Submission failed. Please try again.');
+      console.error('Error submitting:', err);
+      setResults([{ 
+        input: '', 
+        output: '', 
+        expectedOutput: '', 
+        passed: false, 
+        error: '⚠️ Error connecting to backend: ' + err.message 
+      }]);
+    } finally {
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   }
 
   const editorRef = useRef(null);
@@ -152,19 +184,7 @@ export default function CodeArena() {
 
       <div className="flex flex-col md:flex-row gap-4">
         <div className="md:w-1/3 bg-white rounded-xl shadow-md p-4 border border-gray-200">
-          <h3 className="text-lg font-semibold mb-2">Select Problem</h3>
-          <select
-            className="w-full p-2 border rounded-lg focus:ring-2 focus:ring-blue-400"
-            value={selectedProblemId || ''}
-            onChange={e => {
-              const id = e.target.value;
-              setSelectedProblemId(id);
-              const prob = problems.find(p => p.id === id);
-              if (prob) setCode(prob.defaultCode[language] || defaultCodes[language]);
-            }}
-          >
-            {problems.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
-          </select>
+          
 
           <div className="mt-4">
             <h4 className="text-md font-semibold text-gray-700">Problem Statement</h4>
