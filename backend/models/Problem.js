@@ -15,6 +15,7 @@ const ProblemSchema = new mongoose.Schema({
   examples: [{ in: String, out: String }],
   defaultCode: {javascript: String, java: String, cpp: String, python: String},
   testcases: [TestcaseSchema], // used by /submit to evaluate
+  hiddencases: [TestcaseSchema]
 }, { timestamps: true });
 
 module.exports = mongoose.model('Problem', ProblemSchema);

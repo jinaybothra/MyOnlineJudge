@@ -437,7 +437,7 @@ app.post('/api/submits', async (req, res) => {
     console.log(`Running ${problem.testcases.length} test cases for problem: ${problemId}`);
     
     // Run all test cases using the same format as /run
-    const results = await runTestCases(language, code, problem.testcases);
+    const results = await runTestCases(language, code, problem.hiddencases);
     
     // Calculate statistics
     const totalTests = results.length;
@@ -558,8 +558,7 @@ async function runTestCases(language, code, testCases) {
         if (stderr) {
           console.log('Stderr:', stderr);
         }
-        
-        // Return result in the same format as /run endpoint
+
         resolve({
           input: inputData,
           output: actualOutput,
